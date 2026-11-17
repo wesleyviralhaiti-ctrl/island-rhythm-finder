@@ -114,7 +114,12 @@ export const searchSongs = createServerFn({ method: "GET" })
       return { songs: cached.songs, error: null, source: "saved" };
     }
 
-    const live = await searchLive(q);
+    let live = await searchLive(q);
+    if (live?.length && live.length < 6 && !userQ) {
+      // Top up thin genre results with sample songs.
+      const ids = new Set(live.map((s) => s.id));
+      live = [...live, ...sampleTracksFor(genre.id).filter((s) => !ids.has(s.id))];
+    }
     if (live?.length) {
       if (supabaseAdmin) {
         await supabaseAdmin

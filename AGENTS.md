@@ -32,7 +32,7 @@ use the editor.
 <!-- AGENT-MEMORY:BEGIN -->
 - App tables (listeners, payment_requests, search_cache) have RLS on with no policies; all access goes through server functions in src/lib/*.functions.ts using supabaseAdmin. Why: no user accounts, listener id (random uuid in localStorage) identifies the user.
 - Admin server functions take the passcode on every call and compare it to the ADMIN_PASSCODE secret. Why: the client-side gate alone is not security.
-- YouTube search results are cached server-side in search_cache (shared, 6h TTL, stale served on quota errors) and fetched client-side with useQuery (not route loaders). Why: the YouTube key has a small daily search quota; SSR loaders would double the calls.
+- Song search is keyless: src/lib/youtube.functions.ts races public Piped/Invidious mirrors, caches results in search_cache (shared, 6h TTL), then falls back to stale cache, then to src/lib/sample-tracks.ts. It never returns an error to the UI. Fetched client-side with useQuery (not route loaders). Why: mirrors are flaky and the user wants search to always show songs without a Google key.
 - Playlists live in localStorage; downloaded MP3s live in the IndexedDB audio vault (src/lib/audio-vault.ts), both per device; premium status comes from the server.
 - MP3 downloads: getMp3Link server fn checks premium, calls RapidAPI youtube-mp36 with retry logic in src/lib/mp3-retry.ts, returns the CDN link; the browser fetches it (CORS open) into the vault. Key = app_settings 'rapidapi_key' (admin-editable) else RAPIDAPI_KEY secret. Why: key must stay server-side and work for every listener, not just the admin's device.
 - Pricing/premium rules live in src/lib/plans.ts and are covered by src/test/plans.test.ts.
