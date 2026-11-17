@@ -91,6 +91,24 @@ export type Database = {
           },
         ]
       }
+      search_cache: {
+        Row: {
+          cache_key: string
+          fetched_at: string
+          songs: Json
+        }
+        Insert: {
+          cache_key: string
+          fetched_at?: string
+          songs?: Json
+        }
+        Update: {
+          cache_key?: string
+          fetched_at?: string
+          songs?: Json
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

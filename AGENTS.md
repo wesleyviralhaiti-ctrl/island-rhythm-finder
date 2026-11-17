@@ -28,3 +28,11 @@ use the editor.
   own key and store it in Secrets.
 - **Secrets.** Lovable manages them. Do not put secret values in the repo.
 <!-- LOVABLE:END -->
+
+<!-- AGENT-MEMORY:BEGIN -->
+- App tables (listeners, payment_requests, search_cache) have RLS on with no policies; all access goes through server functions in src/lib/*.functions.ts using supabaseAdmin. Why: no user accounts, listener id (random uuid in localStorage) identifies the user.
+- Admin server functions take the passcode on every call and compare it to the ADMIN_PASSCODE secret. Why: the client-side gate alone is not security.
+- YouTube search results are cached server-side in search_cache (shared, 6h TTL, stale served on quota errors) and fetched client-side with useQuery (not route loaders). Why: the YouTube key has a small daily search quota; SSR loaders would double the calls.
+- Downloads and playlists live in the browser's localStorage (per device); premium status comes from the server.
+- Pricing/premium rules live in src/lib/plans.ts and are covered by src/test/plans.test.ts.
+<!-- AGENT-MEMORY:END -->
