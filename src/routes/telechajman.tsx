@@ -1,8 +1,10 @@
+import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { Crown, Download, Play } from "lucide-react";
+import { Crown, Download, Loader2, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/wesley/PageHeader";
-import { SongRow } from "@/components/wesley/SongRow";
+import { MusicFolderDialog } from "@/components/wesley/MusicFolderDialog";
+import { VaultCard } from "@/components/wesley/VaultCard";
 import { useApp } from "@/lib/app-store";
 
 export const Route = createFileRoute("/telechajman")({
@@ -20,7 +22,10 @@ export const Route = createFileRoute("/telechajman")({
 });
 
 function Downloads() {
-  const { downloads, removeDownload, play, isPremium, status, setPaymentOpen } = useApp();
+  const { downloads, removeDownload, play, isPremium, status, setPaymentOpen, jobs, current } = useApp();
+  const [folderFor, setFolderFor] = useState<string | null | undefined>(undefined);
+  const offlineQueue = downloads.map((d) => ({ ...d, offline: true }));
+  const activeJobs = Object.entries(jobs);
 
   return (
     <>
@@ -29,10 +34,10 @@ function Downloads() {
         <div className="flex items-end justify-between">
           <div>
             <h1 className="text-2xl font-black">Telechajman</h1>
-            <p className="text-sm text-muted-foreground">{downloads.length} mizik sove</p>
+            <p className="text-sm text-muted-foreground">{downloads.length} MP3 sou aparèy la</p>
           </div>
           {downloads.length > 0 && (
-            <Button variant="neon" className="rounded-full" onClick={() => play(downloads[0]!, downloads)}>
+            <Button variant="neon" className="rounded-full" onClick={() => play(offlineQueue[0]!, offlineQueue)}>
               <Play className="fill-current" /> Jwe tout
             </Button>
           )}
@@ -53,18 +58,50 @@ function Downloads() {
           </div>
         )}
 
-        <div className="mt-6 space-y-1">
-          {downloads.length === 0 ? (
+        {activeJobs.length > 0 && (
+          <div className="mt-6 space-y-2">
+            {activeJobs.map(([id, job]) => (
+              <div key={id} className="rounded-2xl border border-border bg-surface p-3">
+                <div className="flex items-center gap-2 text-xs font-bold">
+                  <Loader2 className="size-4 animate-spin text-primary" />
+                  {job.stage === "prepare" ? "Ap prepare MP3 a…" : `Ap telechaje… ${job.progress ?? 0}%`}
+                </div>
+                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-background">
+                  <div
+                    className="h-full rounded-full bg-neon-gradient transition-all"
+                    style={{ width: `${job.stage === "prepare" ? 8 : (job.progress ?? 0)}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="mt-6 space-y-3">
+          {downloads.length === 0 && activeJobs.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
               <Download className="mx-auto mb-2 size-8 text-primary" />
-              Peze bouton telechaje a sou yon mizik pou w sove l isit la.
+              Peze bouton telechaje a sou yon mizik pou w sove MP3 a sou telefòn ou.
             </div>
           ) : (
-            downloads.map((s) => (
-              <SongRow key={s.id} song={s} queue={downloads} hideDownload onRemove={() => removeDownload(s.id)} />
+            offlineQueue.map((t) => (
+              <VaultCard
+                key={t.id}
+                track={t}
+                playing={current?.id === t.id && !!current.offline}
+                onPlay={() => play(t, offlineQueue)}
+                onFolder={() => setFolderFor(t.id)}
+                onDelete={() => removeDownload(t.id)}
+              />
             ))
           )}
         </div>
+        <MusicFolderDialog
+          open={folderFor !== undefined}
+          onOpenChange={(o) => !o && setFolderFor(undefined)}
+          tracks={downloads}
+          highlightId={folderFor ?? null}
+        />
       </main>
     </>
   );

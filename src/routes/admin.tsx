@@ -8,7 +8,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Logo } from "@/components/wesley/Logo";
-import { adminDashboard, adminLogin, adminReviewPayment } from "@/lib/admin.functions";
+import {
+  adminDashboard,
+  adminGetRapidKey,
+  adminLogin,
+  adminReviewPayment,
+  adminSaveRapidKey,
+} from "@/lib/admin.functions";
 import { isPremiumActive } from "@/lib/plans";
 import { cn } from "@/lib/utils";
 
@@ -161,6 +167,8 @@ function Dashboard({ passcode, onLogout }: { passcode: string; onLogout: () => v
           <Stat label="Revni" value={`$${revenue}`} />
         </div>
 
+        <RapidKeyCard passcode={passcode} />
+
         {isLoading ? (
           <div className="grid place-items-center py-16">
             <Loader2 className="animate-spin text-primary" />
@@ -223,6 +231,73 @@ function Dashboard({ passcode, onLogout }: { passcode: string; onLogout: () => v
         )}
       </main>
     </>
+  );
+}
+
+function RapidKeyCard({ passcode }: { passcode: string }) {
+  const getKey = useServerFn(adminGetRapidKey);
+  const saveKey = useServerFn(adminSaveRapidKey);
+  const qc = useQueryClient();
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState(false);
+  const { data } = useQuery({ queryKey: ["admin-rapid-key"], queryFn: () => getKey({ data: { passcode } }) });
+
+  async function save(key: string) {
+    setBusy(true);
+    try {
+      const r = await saveKey({ data: { passcode, key } });
+      toast.success(r.reset ? "Kle default la remete" : "Kle RapidAPI a sove");
+      setValue("");
+      await qc.invalidateQueries({ queryKey: ["admin-rapid-key"] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Kle a pa sove.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="mt-6 rounded-2xl border border-primary/40 bg-surface p-4">
+      <h2 className="text-sm font-extrabold">🔑 RapidAPI MP3 Key Settings</h2>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Kle sa a sèvi pou telechaje MP3 pou tout itilizatè Premium yo. Li rete sekrè sou sèvè a.
+      </p>
+      <div className="mt-3 flex items-center justify-between rounded-xl bg-background px-3 py-2 text-xs">
+        <span className="font-mono">{data?.masked ?? "Pa gen kle"}</span>
+        <span
+          className={cn(
+            "rounded-full px-2 py-0.5 text-[10px] font-bold",
+            data?.isCustom ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
+          )}
+        >
+          {data?.isCustom ? "PA W" : "DEFAULT"}
+        </span>
+      </div>
+      <form
+        className="mt-3 flex gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (value.trim()) void save(value.trim());
+        }}
+      >
+        <Input
+          type="password"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="Kole nouvo kle RapidAPI a"
+          className="h-10 rounded-xl bg-background font-mono text-xs"
+          autoComplete="off"
+        />
+        <Button type="submit" variant="neon" disabled={busy || !value.trim()}>
+          {busy ? <Loader2 className="animate-spin" /> : <Check />} Sove
+        </Button>
+      </form>
+      {data?.isCustom && (
+        <Button variant="link" size="sm" className="mt-1 h-auto px-0 text-xs" disabled={busy} onClick={() => void save("")}>
+          Remete kle default la
+        </Button>
+      )}
+    </section>
   );
 }
 

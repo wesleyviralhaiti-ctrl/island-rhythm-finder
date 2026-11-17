@@ -1,4 +1,4 @@
-import { Check, Download, ListPlus, Pause, Play, Trash2 } from "lucide-react";
+import { Check, Download, ListPlus, Loader2, Pause, Play, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useApp } from "@/lib/app-store";
 import { formatDuration } from "@/lib/song-filter";
@@ -26,7 +26,8 @@ export function SongRow({
   onRemove?: () => void;
   hideDownload?: boolean;
 }) {
-  const { current, play, download, isDownloaded, setPlaylistTarget } = useApp();
+  const { current, play, download, isDownloaded, setPlaylistTarget, jobs } = useApp();
+  const job = jobs[song.id];
   const active = current?.id === song.id;
   const downloaded = isDownloaded(song.id);
 
@@ -71,9 +72,20 @@ export function SongRow({
             size="icon"
             aria-label="Telechaje"
             onClick={() => download(song)}
-            className={cn(downloaded && "text-primary")}
+            disabled={!!job}
+            className={cn("relative", (downloaded || job) && "text-primary")}
           >
-            {downloaded ? <Check /> : <Download />}
+            {job ? (
+              job.progress != null ? (
+                <span className="text-[10px] font-black">{job.progress}%</span>
+              ) : (
+                <Loader2 className="animate-spin" />
+              )
+            ) : downloaded ? (
+              <Check />
+            ) : (
+              <Download />
+            )}
           </Button>
         )}
         {onRemove && (

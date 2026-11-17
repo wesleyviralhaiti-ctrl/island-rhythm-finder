@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { getAudio } from "@/lib/audio-vault";
 import { ChevronDown, ChevronUp, SkipBack, SkipForward, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useApp } from "@/lib/app-store";
@@ -14,6 +15,9 @@ export function PlayerDock() {
     <div className="fixed inset-x-0 bottom-[68px] z-30 px-3">
       <div className="glass mx-auto max-w-md overflow-hidden rounded-2xl border border-primary/30 shadow-neon">
         <div className={cn("flex gap-3 p-2", expanded ? "flex-col" : "items-center")}>
+          {current.offline ? (
+            <OfflineAudio id={current.id} thumbnail={current.thumbnail} expanded={expanded} onEnded={next} />
+          ) : (
           <div
             className={cn(
               "overflow-hidden rounded-xl bg-background",
@@ -29,6 +33,7 @@ export function PlayerDock() {
               className="size-full"
             />
           </div>
+          )}
           <div className="flex min-w-0 flex-1 items-center gap-2 px-1">
             <EqBars />
             <div className="min-w-0 flex-1">
@@ -59,6 +64,57 @@ export function PlayerDock() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function OfflineAudio({
+  id,
+  thumbnail,
+  expanded,
+  onEnded,
+}: {
+  id: string;
+  thumbnail: string;
+  expanded: boolean;
+  onEnded: () => void;
+}) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [missing, setMissing] = useState(false);
+
+  useEffect(() => {
+    let url: string | null = null;
+    setSrc(null);
+    setMissing(false);
+    getAudio(id)
+      .then((blob) => {
+        if (!blob) return setMissing(true);
+        url = URL.createObjectURL(blob);
+        setSrc(url);
+      })
+      .catch(() => setMissing(true));
+    return () => {
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [id]);
+
+  return (
+    <div className={cn("flex gap-3", expanded ? "flex-col" : "w-[200px] shrink-0 items-center")}>
+      {expanded && thumbnail && (
+        <div className="relative aspect-video w-full overflow-hidden rounded-xl">
+          <img src={thumbnail} alt="" className="size-full object-cover" />
+          <span className="absolute left-2 top-2 rounded-full bg-primary px-2 py-0.5 text-[10px] font-black text-primary-foreground">
+            OFFLINE • MP3
+          </span>
+        </div>
+      )}
+      {missing ? (
+        <p className="text-xs text-destructive">Fichye MP3 a pa jwenn sou aparèy la.</p>
+      ) : src ? (
+        <audio key={src} src={src} autoPlay controls onEnded={onEnded} className="h-10 w-full [color-scheme:dark]" />
+      ) : (
+        <div className="h-10 w-full animate-pulse rounded-full bg-surface-2" />
+      )}
     </div>
   );
 }
