@@ -37,6 +37,10 @@ describe("individual songs only", () => {
     expect(isIndividualSong("Konpa Mix 2026", 240)).toBe(false);
     expect(isIndividualSong("Kompa song", parseIsoDuration("PT1H2M"))).toBe(false);
   });
+  it("rejects anything over 15 minutes and keeps a 14-minute track", () => {
+    expect(isIndividualSong("Long track", 16 * 60)).toBe(false);
+    expect(isIndividualSong("Long track", 14 * 60)).toBe(true);
+  });
   it("keeps a normal single", () => {
     expect(isIndividualSong("Artist - Song (Official Audio)", parseIsoDuration("PT3M45S"))).toBe(true);
   });

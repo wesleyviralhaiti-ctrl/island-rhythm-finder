@@ -1,6 +1,6 @@
 // Keeps only individual songs: no mixes, playlists, albums, or long sets.
 export const MIN_SONG_SECONDS = 90;
-export const MAX_SONG_SECONDS = 600;
+export const MAX_SONG_SECONDS = 15 * 60; // longer than 15 min = mixtape
 
 const NOT_A_SINGLE =
   /\b(mix|mixtape|megamix|playlist|full album|album complet|compilation|compil|nonstop|non-stop|non stop|live set|dj set|top \d+|\d+\s*(hours?|hrs?|h)\b|1 hour|best of|medley)\b/i;
