@@ -1,3 +1,4 @@
+
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { genreById } from "./genres";
@@ -18,7 +19,7 @@ function toSong(id: string, title: string, channel: string, durationSec: number)
     id,
     title: t,
     channel: decodeEntities(channel) || "YouTube Music",
-    thumbnail: `https://i.ytimg.com/vi/${id}/mqdefault.jpg`,
+    thumbnail: `https://ytimg.com{id}/mqdefault.jpg`,
     durationSec,
   };
 }
@@ -26,8 +27,8 @@ function toSong(id: string, title: string, channel: string, durationSec: number)
 function parseDurationText(txt: string): number {
   const parts = txt.split(":").map((n) => parseInt(n, 10));
   if (parts.some((n) => Number.isNaN(n))) return 210;
-  if (parts.length === 2) return parts[0] * 60 + parts[1];
-  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  if (parts.length === 2) return (parts.at(0) ?? 0) * 60 + (parts.at(1) ?? 0);
+  if (parts.length === 3) return (parts.at(0) ?? 0) * 3600 + (parts.at(1) ?? 0) * 60 + (parts.at(2) ?? 0);
   return 210;
 }
 
@@ -60,10 +61,13 @@ async function searchYouTubeDirect(q: string): Promise<Song[]> {
     for (const item of items) {
       const v = item?.videoRenderer;
       if (!v || !v.videoId || seen.has(v.videoId)) continue;
-      const title = v?.title?.runs?.[0]?.text ?? v?.title?.simpleText ?? "";
-      const channel = v?.ownerText?.runs?.[0]?.text ?? v?.longBylineText?.runs?.[0]?.text ?? "YouTube";
+      const titleRuns = Array.isArray(v?.title?.runs) ? v.title.runs : [];
+      const title = titleRuns.at(0)?.text ?? v?.title?.simpleText ?? "";
+      const ownerRuns = Array.isArray(v?.ownerText?.runs) ? v.ownerText.runs : [];
+      const bylineRuns = Array.isArray(v?.longBylineText?.runs) ? v.longBylineText.runs : [];
+      const channel = ownerRuns.at(0)?.text ?? bylineRuns.at(0)?.text ?? "YouTube";
       const durText = v?.lengthText?.simpleText ?? "";
-      if (!durText) continue; // skip live streams
+      if (!durText) continue;
       const durationSec = parseDurationText(durText);
       const song = toSong(v.videoId, title, channel, durationSec);
       if (song) {
@@ -87,7 +91,7 @@ export const searchSongs = createServerFn({ method: "GET" })
     const genre = genreById(data.genre);
     const userQ = data.q.trim().toLowerCase().replace(/\s+/g, " ");
     const q = userQ ? (genre.id === "tout" ? userQ : `${userQ} ${genre.label}`) : genre.query;
-    const cacheKey = `yt_v2|${genre.id}|${userQ}`;
+    const cacheKey = `yt_v3|${genre.id}|${userQ}`;
 
     let cached: { songs: Song[]; fetched_at: string } | null = null;
     let supabaseAdmin: (typeof import("@/integrations/supabase/client.server"))["supabaseAdmin"] | null = null;
