@@ -9,13 +9,81 @@ import { SongRow } from "@/components/wesley/SongRow";
 import { useApp } from "@/lib/app-store";
 import { GENRES, genreById } from "@/lib/genres";
 import { searchSongs } from "@/lib/youtube.functions";
+import { decodeEntities, isIndividualSong } from "@/lib/song-filter";
+import type { Song } from "@/lib/types";
+
+const BROWSER_PIPED = [
+  "https://private.coffee",
+  "https://kavin.rocks",
+  "https://adminforge.de",
+  "https://r4fo.com",
+  "https://leptons.xyz",
+];
+
+const BROWSER_INVIDIOUS = [
+  "https://nadeko.net",
+  "https://nerdvpn.de",
+  "https://yewtu.be",
+  "https://f5.si",
+  "https://melmac.space",
+];
+
+function validSong(id: string, title: string, channel: string, durationSec: number): Song | null {
+  if (!/^[A-Za-z0-9_-]{11}$/.test(id)) return null;
+  const clean = decodeEntities(title);
+  if (!isIndividualSong(clean, durationSec)) return null;
+  return {
+    id,
+    title: clean,
+    channel: decodeEntities(channel) || "YouTube",
+    thumbnail: `https://ytimg.com{id}/mqdefault.jpg`,
+    durationSec,
+  };
+}
+
+async function fetchFromBrowser(q: string): Promise<Song[]> {
+  const pipedCalls = BROWSER_PIPED.map(async (base) => {
+    const r = await fetch(`${base}/search?${new URLSearchParams({ q, filter: "videos" })}`, {
+      signal: AbortSignal.timeout(6500),
+    });
+    if (!r.ok) throw new Error("piped");
+    const d = await r.json();
+    const list = (Array.isArray(d?.items) ? d.items : [])
+      .filter((i: { type?: string; url?: string }) => i.type === "stream" && i.url)
+      .map((i: { url: string; title?: string; uploaderName?: string; duration?: number }) => {
+        const vid = i.url.split("v=").at(1)?.slice(0, 11) ?? "";
+        return validSong(vid, i.title ?? "", i.uploaderName ?? "", i.duration ?? 210);
+      })
+      .filter((s: Song | null): s is Song => !!s);
+    if (!list.length) throw new Error("empty");
+    return list;
+  });
+
+  const invCalls = BROWSER_INVIDIOUS.map(async (base) => {
+    const r = await fetch(`${base}/api/v1/search?${new URLSearchParams({ q, type: "video" })}`, {
+      signal: AbortSignal.timeout(6500),
+    });
+    if (!r.ok) throw new Error("inv");
+    const d = await r.json();
+    const list = (Array.isArray(d) ? d : [])
+      .filter((i: { type?: string; videoId?: string }) => i.type === "video" && i.videoId)
+      .map((i: { videoId: string; title?: string; author?: string; lengthSeconds?: number }) =>
+        validSong(i.videoId, i.title ?? "", i.author ?? "", i.lengthSeconds ?? 210),
+      )
+      .filter((s: Song | null): s is Song => !!s);
+    if (!list.length) throw new Error("empty");
+    return list;
+  });
+
+  return Promise.any([...pipedCalls, ...invCalls]);
+}
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Akèy — WESLEY MUSIC DOWNLOAD" },
+      { title: "WESLEY MUSIC DOWNLOAD" },
       { name: "description", content: "Chèche ak koute nouvo mizik Konpa, Rabòday, Amapiano, Drill, Afrobeat ak Rap Kreyòl." },
-      { property: "og:title", content: "WESLEY MUSIC DOWNLOAD — Akèy" },
+      { property: "og:title", content: "WESLEY MUSIC DOWNLOAD" },
       { property: "og:description", content: "Chèche ak koute nouvo mizik Konpa, Rabòday, Amapiano, Drill, Afrobeat ak Rap Kreyòl." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -29,16 +97,28 @@ function Home() {
   const [draft, setDraft] = useState(homeQuery);
 
   const { data, isFetching, isError } = useQuery({
-    queryKey: ["songs", homeGenre, homeQuery],
-    queryFn: () => searchSongs({ data: { q: homeQuery, genre: homeGenre } }),
-    staleTime: 30 * 60 * 1000,
+    queryKey: ["songs_v2", homeGenre, homeQuery],
+    queryFn: async () => {
+      const g = genreById(homeGenre);
+      const userQ = homeQuery.trim();
+      const q = userQ ? (g.id === "tout" ? userQ : `${userQ} ${g.label}`) : g.query;
+      try {
+        const live = await fetchFromBrowser(q);
+        if (live.length >= 4) {
+          return { songs: live, error: null };
+        }
+      } catch {}
+      return searchSongs({ data: { q: homeQuery, genre: homeGenre } });
+    },
+    staleTime: 15 * 60 * 1000,
     gcTime: 60 * 60 * 1000,
   });
+
   const songs = data?.songs ?? [];
-  const firstName = listener?.name.split(" ")[0];
+  const firstName = listener?.name.split(" ").at(0);
 
   return (
-    <>
+    <div className="min-h-screen overflow-y-auto pb-36">
       <PageHeader />
       <main className="mx-auto max-w-md px-4 pt-5">
         <p className="text-sm text-muted-foreground">Bonjou{firstName ? `, ${firstName}` : ""} 👋</p>
@@ -57,7 +137,7 @@ function Home() {
           <Input
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
-            placeholder="Chèche yon mizik sou YouTube..."
+            placeholder="Chèche nenpòt atis oswa mizik..."
             className="h-13 rounded-2xl border-primary/30 bg-surface pl-12 pr-24 text-base focus-visible:shadow-neon"
             maxLength={120}
             enterKeyHint="search"
@@ -127,7 +207,7 @@ function Home() {
           )}
         </section>
       </main>
-    </>
+    </div>
   );
 }
 
