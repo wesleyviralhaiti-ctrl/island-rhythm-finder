@@ -5,27 +5,8 @@ import { sampleTracksFor } from "./sample-tracks";
 import { decodeEntities, isIndividualSong } from "./song-filter";
 import type { Song } from "./types";
 
-// Keyless search through public Piped / Invidious mirrors. Results are shared between
-// listeners for a few hours; when every mirror is down, saved or sample songs are shown.
 const CACHE_HOURS = 6;
-const TIMEOUT_MS = 7000;
-
-const PIPED = [
-  "https://api.piped.private.coffee",
-  "https://pipedapi.kavin.rocks",
-  "https://pipedapi.r4fo.com",
-  "https://pipedapi.adminforge.de",
-  "https://pipedapi.leptons.xyz",
-  "https://piped-api.lunar.icu",
-];
-const INVIDIOUS = [
-  "https://inv.nadeko.net",
-  "https://invidious.nerdvpn.de",
-  "https://yewtu.be",
-  "https://invidious.f5.si",
-  "https://iv.melmac.space",
-  "https://inv.tux.pizza",
-];
+const TIMEOUT_MS = 8000;
 
 type Result = { songs: Song[]; error: null; source: "live" | "saved" | "sample" };
 
@@ -33,55 +14,69 @@ function toSong(id: string, title: string, channel: string, durationSec: number)
   if (!/^[A-Za-z0-9_-]{11}$/.test(id)) return null;
   const t = decodeEntities(title);
   if (!isIndividualSong(t, durationSec)) return null;
-  return { id, title: t, channel: decodeEntities(channel), thumbnail: `https://i.ytimg.com/vi/${id}/mqdefault.jpg`, durationSec };
+  return {
+    id,
+    title: t,
+    channel: decodeEntities(channel) || "YouTube Music",
+    thumbnail: `https://i.ytimg.com/vi/${id}/mqdefault.jpg`,
+    durationSec,
+  };
 }
 
-async function getJson(url: string): Promise<unknown> {
-  const r = await fetch(url, {
-    headers: { accept: "application/json", "user-agent": "Mozilla/5.0 WesleyMusic" },
+function parseDurationText(txt: string): number {
+  const parts = txt.split(":").map((n) => parseInt(n, 10));
+  if (parts.some((n) => Number.isNaN(n))) return 210;
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  return 210;
+}
+
+async function searchYouTubeDirect(q: string): Promise<Song[]> {
+  const url = "https://youtube.com" + encodeURIComponent(q);
+  const res = await fetch(url, {
+    headers: {
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      "accept-language": "en-US,en;q=0.9",
+    },
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
-  if (!r.ok || !(r.headers.get("content-type") ?? "").includes("json")) throw new Error(`${url} ${r.status}`);
-  return r.json();
-}
+  if (!res.ok) throw new Error("yt_http_" + res.status);
+  const html = await res.text();
+  const marker = "var ytInitialData = ";
+  const start = html.indexOf(marker);
+  if (start === -1) throw new Error("yt_no_data");
+  const end = html.indexOf(";</script>", start);
+  if (end === -1) throw new Error("yt_no_end");
+  const json = JSON.parse(html.slice(start + marker.length, end));
 
-async function searchPiped(base: string, q: string): Promise<Song[]> {
-  const d = (await getJson(`${base}/search?${new URLSearchParams({ q, filter: "videos" })}`)) as {
-    items?: { type?: string; url?: string; title?: string; uploaderName?: string; duration?: number }[];
-  };
-  const songs = (d.items ?? [])
-    .filter((i) => i.type === "stream" && i.url)
-    .map((i) => toSong(i.url!.split("v=")[1]?.slice(0, 11) ?? "", i.title ?? "", i.uploaderName ?? "", i.duration ?? 0))
-    .filter((s): s is Song => !!s);
-  if (!songs.length) throw new Error("empty");
-  return songs;
-}
+  const sections =
+    json?.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer?.contents ?? [];
+  const songs: Song[] = [];
+  const seen = new Set<string>();
 
-async function searchInvidious(base: string, q: string): Promise<Song[]> {
-  const d = (await getJson(`${base}/api/v1/search?${new URLSearchParams({ q, type: "video" })}`)) as {
-    type?: string;
-    videoId?: string;
-    title?: string;
-    author?: string;
-    lengthSeconds?: number;
-  }[];
-  const songs = (Array.isArray(d) ? d : [])
-    .filter((i) => i.type === "video" && i.videoId)
-    .map((i) => toSong(i.videoId!, i.title ?? "", i.author ?? "", i.lengthSeconds ?? 0))
-    .filter((s): s is Song => !!s);
-  if (!songs.length) throw new Error("empty");
-  return songs;
-}
-
-async function searchLive(q: string): Promise<Song[] | null> {
-  try {
-    return await Promise.any([
-      ...PIPED.map((b) => searchPiped(b, q)),
-      ...INVIDIOUS.map((b) => searchInvidious(b, q)),
-    ]);
-  } catch {
-    return null;
+  for (const sec of sections) {
+    const items = sec?.itemSectionRenderer?.contents ?? [];
+    for (const item of items) {
+      const v = item?.videoRenderer;
+      if (!v || !v.videoId || seen.has(v.videoId)) continue;
+      const title = v?.title?.runs?.[0]?.text ?? v?.title?.simpleText ?? "";
+      const channel = v?.ownerText?.runs?.[0]?.text ?? v?.longBylineText?.runs?.[0]?.text ?? "YouTube";
+      const durText = v?.lengthText?.simpleText ?? "";
+      if (!durText) continue; // skip live streams
+      const durationSec = parseDurationText(durText);
+      const song = toSong(v.videoId, title, channel, durationSec);
+      if (song) {
+        seen.add(v.videoId);
+        songs.push(song);
+      }
+      if (songs.length >= 25) break;
+    }
+    if (songs.length >= 25) break;
   }
+
+  if (!songs.length) throw new Error("yt_empty");
+  return songs;
 }
 
 export const searchSongs = createServerFn({ method: "GET" })
@@ -92,7 +87,7 @@ export const searchSongs = createServerFn({ method: "GET" })
     const genre = genreById(data.genre);
     const userQ = data.q.trim().toLowerCase().replace(/\s+/g, " ");
     const q = userQ ? (genre.id === "tout" ? userQ : `${userQ} ${genre.label}`) : genre.query;
-    const cacheKey = `${genre.id}|${userQ}`;
+    const cacheKey = `yt_v2|${genre.id}|${userQ}`;
 
     let cached: { songs: Song[]; fetched_at: string } | null = null;
     let supabaseAdmin: (typeof import("@/integrations/supabase/client.server"))["supabaseAdmin"] | null = null;
@@ -106,31 +101,27 @@ export const searchSongs = createServerFn({ method: "GET" })
       if (row && Array.isArray(row.songs) && row.songs.length) {
         cached = { songs: row.songs as unknown as Song[], fetched_at: row.fetched_at };
       }
-    } catch (e) {
-      console.error("search cache read failed", e);
-    }
+    } catch {}
 
     if (cached && Date.now() - new Date(cached.fetched_at).getTime() < CACHE_HOURS * 3600_000) {
       return { songs: cached.songs, error: null, source: "saved" };
     }
 
-    let live = await searchLive(q);
-    if (live?.length && live.length < 6 && !userQ) {
-      // Top up thin genre results with sample songs.
-      const ids = new Set(live.map((s) => s.id));
-      live = [...live, ...sampleTracksFor(genre.id).filter((s) => !ids.has(s.id))];
-    }
-    if (live?.length) {
-      if (supabaseAdmin) {
-        await supabaseAdmin
-          .from("search_cache")
-          .upsert({ cache_key: cacheKey, songs: live, fetched_at: new Date().toISOString() })
-          .then(({ error }) => error && console.error("search cache write failed", error));
+    try {
+      const live = await searchYouTubeDirect(q);
+      if (live.length) {
+        if (supabaseAdmin) {
+          await supabaseAdmin
+            .from("search_cache")
+            .upsert({ cache_key: cacheKey, songs: live, fetched_at: new Date().toISOString() })
+            .then(() => {});
+        }
+        return { songs: live, error: null, source: "live" };
       }
-      return { songs: live, error: null, source: "live" };
+    } catch (err) {
+      console.warn("YouTube direct search fallback:", err);
     }
 
-    console.warn("All public search mirrors failed for", q);
     if (cached) return { songs: cached.songs, error: null, source: "saved" };
     return { songs: sampleTracksFor(genre.id, userQ), error: null, source: "sample" };
   });
