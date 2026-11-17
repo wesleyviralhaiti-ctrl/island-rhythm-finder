@@ -1,3 +1,4 @@
+
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   Outlet,
@@ -15,6 +16,9 @@ import { reportLovableError } from "../lib/lovable-error-reporting";
 import { AppProvider } from "@/lib/app-store";
 import { AppShell } from "@/components/wesley/AppShell";
 import { Toaster } from "@/components/ui/sonner";
+
+const APP_MANIFEST =
+  "data:application/manifest+json,%7B%22name%22%3A%22WESLEY%20MUSIC%20DOWNLOAD%22%2C%22short_name%22%3A%22WESLEY%20MUSIC%22%2C%22start_url%22%3A%22%2F%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%230b0f0c%22%2C%22theme_color%22%3A%22%231DB954%22%2C%22icons%22%3A%5B%7B%22src%22%3A%22%2FWesley-icon.png%22%2C%22sizes%22%3A%22512x512%22%2C%22type%22%3A%22image%2Fpng%22%7D%5D%7D";
 
 function NotFoundComponent() {
   return (
@@ -78,31 +82,33 @@ function ErrorComponent({ error, reset }: ErrorComponentProps) {
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   head: () => ({
-    // Replace these placeholders with the app's name and description when first building the app.
-    // Each content route, / included, must still set its own head(). Never add og:image or
-    // twitter:image here: every page without its own would inherit the root's preview image.
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
       { name: "theme-color", content: "#0b0f0c" },
-      { title: "WESLEY MUSIC DOWNLOAD" },
-      { name: "description", content: "Koute ak sove mizik Konpa, Rabòday, Amapiano, Drill, Afrobeat ak Rap Kreyòl." },
+      { title: "WESLEY MUSIC" },
+      { name: "application-name", content: "WESLEY MUSIC" },
+      { name: "apple-mobile-web-app-title", content: "WESLEY MUSIC" },
+      { name: "apple-mobile-web-app-capable", content: "yes" },
+      { name: "mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
+      { name: "description", content: "WESLEY MUSIC DOWNLOAD — Koute ak sove mizik Konpa, Rabòday, Amapiano, Drill, Afrobeat ak Rap Kreyòl." },
       { property: "og:title", content: "WESLEY MUSIC DOWNLOAD" },
       { property: "og:description", content: "Koute ak sove mizik Konpa, Rabòday, Amapiano, Drill, Afrobeat ak Rap Kreyòl." },
       { property: "og:type", content: "website" },
+      { property: "og:image", content: "/Wesley-icon.png" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
     links: [
+      { rel: "stylesheet", href: appCss },
+      { rel: "icon", href: "/Wesley-icon.png", type: "image/png" },
+      { rel: "apple-touch-icon", sizes: "180x180", href: "/Wesley-icon.png" },
+      { rel: "manifest", href: APP_MANIFEST },
+      { rel: "preconnect", href: "https://googleapis.com" },
+      { rel: "preconnect", href: "https://gstatic.com", crossOrigin: "anonymous" },
       {
         rel: "stylesheet",
-        href: appCss,
-      },
-      { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
-      { rel: "preconnect", href: "https://fonts.googleapis.com" },
-      { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
-      {
-        rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Unbounded:wght@600;800;900&display=swap",
+        href: "https://googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Unbounded:wght@600;800;900&display=swap",
       },
     ],
   }),
@@ -133,7 +139,6 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       <AppProvider>
         <AppShell>
-          {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
           <Outlet />
         </AppShell>
         <Toaster position="top-center" />
