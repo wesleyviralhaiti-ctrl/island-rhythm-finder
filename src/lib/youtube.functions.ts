@@ -6,23 +6,35 @@ import { decodeEntities, isIndividualSong } from "./song-filter";
 import type { Song } from "./types";
 
 const YT_KEY = "AIzaSyCucl4Ir00AEJI_m5Twwq7rMQCX6unEv48";
-const CACHE_HOURS = 24;
+const TIMEOUT_MS = 6000;
 type Result = { songs: Song[]; error: null; source: "live" | "saved" | "sample" };
 
-const VERIFIED_HITS: Array<Song & { tag: string }> = [
-  { id: "r_5fP6c8i7I", title: "Kreyol La - Vagabon", channel: "Kreyol La", thumbnail: "https://ytimg.com", durationSec: 278, tag: "konpa" },
-  { id: "vW2h1kL3B1A", title: "Harmonik - Incroyable", channel: "Harmonik", thumbnail: "https://ytimg.com", durationSec: 318, tag: "konpa" },
-  { id: "U2Fj1xZ8K_M", title: "Rutshelle Guillaume - Rete La", channel: "Rutshelle Guillaume", thumbnail: "https://ytimg.com", durationSec: 252, tag: "konpa" },
-  { id: "X9nQ8jP2w1E", title: "Enposib - Kamasutra", channel: "Enposib", thumbnail: "https://ytimg.com", durationSec: 304, tag: "konpa" },
-  { id: "L5b3pQ8wN2Y", title: "Klass - Map Marye", channel: "Klass", thumbnail: "https://ytimg.com", durationSec: 345, tag: "konpa" },
-  { id: "M3v7cK9rT4P", title: "Kai - Malad", channel: "Kai", thumbnail: "https://ytimg.com", durationSec: 286, tag: "konpa" },
-  { id: "Q8w2zR6vB1N", title: "Nu Look - Wasn't Meant To Be", channel: "Nu Look", thumbnail: "https://ytimg.com", durationSec: 360, tag: "konpa" },
-  { id: "X0mN4vC8bZ2", title: "Tyla - Water", channel: "Tyla", thumbnail: "https://ytimg.com", durationSec: 200, tag: "amapiano" },
-  { id: "E1R2tY3uI4o", title: "Burna Boy - Last Last", channel: "Burna Boy", thumbnail: "https://ytimg.com", durationSec: 172, tag: "afrobeat" },
-  { id: "WcIcVapfqXw", title: "Rema - Calm Down", channel: "Rema", thumbnail: "https://ytimg.com", durationSec: 239, tag: "afrobeat" },
-  { id: "p5A6sD7fG8h", title: "Central Cee - Doja", channel: "Central Cee", thumbnail: "https://ytimg.com", durationSec: 105, tag: "drill" },
-  { id: "oorVWW9ywG0", title: "Pop Smoke - Dior", channel: "Pop Smoke", thumbnail: "https://ytimg.com", durationSec: 216, tag: "drill" },
+const PIPED_MIRRORS = [
+  "https://private.coffee",
+  "https://kavin.rocks",
+  "https://adminforge.de",
+  "https://r4fo.com",
 ];
+
+const INVIDIOUS_MIRRORS = [
+  "https://nadeko.net",
+  "https://nerdvpn.de",
+  "https://yewtu.be",
+  "https://f5.si",
+];
+
+function toSong(id: string, title: string, channel: string, durationSec: number): Song | null {
+  if (!/^[A-Za-z0-9_-]{11}$/.test(id)) return null;
+  const t = decodeEntities(title);
+  if (!isIndividualSong(t, durationSec)) return null;
+  return {
+    id,
+    title: t,
+    channel: decodeEntities(channel) || "YouTube",
+    thumbnail: `https://ytimg.com{id}/mqdefault.jpg`,
+    durationSec,
+  };
+}
 
 async function searchOfficialYouTube(q: string): Promise<Song[]> {
   const params = new URLSearchParams({
@@ -32,26 +44,49 @@ async function searchOfficialYouTube(q: string): Promise<Song[]> {
     q,
     key: YT_KEY,
   });
-  const res = await fetch(`https://googleapis.com{params.toString()}`);
+  const res = await fetch(`https://googleapis.com{params.toString()}`, {
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  });
   if (!res.ok) throw new Error("yt_api_" + res.status);
   const data = await res.json();
   const items = Array.isArray(data.items) ? data.items : [];
-  const songs: Song[] = [];
+  const songs = items
+    .map((item: { id?: { videoId?: string }; snippet?: { title?: string; channelTitle?: string } }) =>
+      toSong(item?.id?.videoId ?? "", item?.snippet?.title ?? "", item?.snippet?.channelTitle ?? "YouTube", 210),
+    )
+    .filter((s: Song | null): s is Song => !!s);
+  if (!songs.length) throw new Error("empty");
+  return songs;
+}
 
-  for (const item of items) {
-    const id = item?.id?.videoId;
-    const title = decodeEntities(item?.snippet?.title ?? "");
-    const channel = decodeEntities(item?.snippet?.channelTitle ?? "YouTube");
-    if (!id || !/^[A-Za-z0-9_-]{11}$/.test(id)) continue;
-    if (!isIndividualSong(title, 210)) continue;
-    songs.push({
-      id,
-      title,
-      channel,
-      thumbnail: `https://ytimg.com{id}/mqdefault.jpg`,
-      durationSec: 210,
-    });
-  }
+async function searchPiped(base: string, q: string): Promise<Song[]> {
+  const r = await fetch(`${base}/search?${new URLSearchParams({ q, filter: "videos" })}`, {
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  });
+  if (!r.ok) throw new Error("piped");
+  const d = await r.json();
+  const songs = (Array.isArray(d?.items) ? d.items : [])
+    .filter((i: { type?: string; url?: string }) => i.type === "stream" && i.url)
+    .map((i: { url: string; title?: string; uploaderName?: string; duration?: number }) =>
+      toSong(i.url.split("v=")[1]?.slice(0, 11) ?? "", i.title ?? "", i.uploaderName ?? "", i.duration ?? 210),
+    )
+    .filter((s: Song | null): s is Song => !!s);
+  if (!songs.length) throw new Error("empty");
+  return songs;
+}
+
+async function searchInvidious(base: string, q: string): Promise<Song[]> {
+  const r = await fetch(`${base}/api/v1/search?${new URLSearchParams({ q, type: "video" })}`, {
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  });
+  if (!r.ok) throw new Error("inv");
+  const d = await r.json();
+  const songs = (Array.isArray(d) ? d : [])
+    .filter((i: { type?: string; videoId?: string }) => i.type === "video" && i.videoId)
+    .map((i: { videoId: string; title?: string; author?: string; lengthSeconds?: number }) =>
+      toSong(i.videoId, i.title ?? "", i.author ?? "", i.lengthSeconds ?? 210),
+    )
+    .filter((s: Song | null): s is Song => !!s);
   if (!songs.length) throw new Error("empty");
   return songs;
 }
@@ -64,51 +99,15 @@ export const searchSongs = createServerFn({ method: "GET" })
     const genre = genreById(data.genre);
     const userQ = data.q.trim().toLowerCase().replace(/\s+/g, " ");
     const q = userQ ? (genre.id === "tout" ? userQ : `${userQ} ${genre.label}`) : genre.query;
-    const cacheKey = `yt_full|${genre.id}|${userQ}`;
 
-    let cached: { songs: Song[]; fetched_at: string } | null = null;
-    let supabaseAdmin: (typeof import("@/integrations/supabase/client.server"))["supabaseAdmin"] | null = null;
     try {
-      ({ supabaseAdmin } = await import("@/integrations/supabase/client.server"));
-      const { data: row } = await supabaseAdmin
-        .from("search_cache")
-        .select("songs, fetched_at")
-        .eq("cache_key", cacheKey)
-        .maybeSingle();
-      if (row && Array.isArray(row.songs) && row.songs.length) {
-        cached = { songs: row.songs as unknown as Song[], fetched_at: row.fetched_at };
-      }
+      const live = await Promise.any([
+        searchOfficialYouTube(q),
+        ...PIPED_MIRRORS.map((m) => searchPiped(m, q)),
+        ...INVIDIOUS_MIRRORS.map((m) => searchInvidious(m, q)),
+      ]);
+      if (live.length) return { songs: live, error: null, source: "live" };
     } catch {}
 
-    if (cached && Date.now() - new Date(cached.fetched_at).getTime() < CACHE_HOURS * 3600_000) {
-      return { songs: cached.songs, error: null, source: "saved" };
-    }
-
-    try {
-      const live = await searchOfficialYouTube(q);
-      if (live.length) {
-        if (supabaseAdmin) {
-          await supabaseAdmin
-            .from("search_cache")
-            .upsert({ cache_key: cacheKey, songs: live, fetched_at: new Date().toISOString() })
-            .then(() => {});
-        }
-        return { songs: live, error: null, source: "live" };
-      }
-    } catch (e) {
-      console.warn("Official YT fallback:", e);
-    }
-
-    if (cached) return { songs: cached.songs, error: null, source: "saved" };
-
-    const samples = sampleTracksFor(genre.id, userQ);
-    const matching = VERIFIED_HITS.filter((x) => {
-      if (userQ) return x.title.toLowerCase().includes(userQ) || x.channel.toLowerCase().includes(userQ);
-      if (genre.id === "tout") return true;
-      return genre.id.toLowerCase().includes(x.tag);
-    }).map(({ tag: _t, ...s }) => s);
-
-    const seen = new Set(samples.map((s) => s.id));
-    const all = [...samples, ...matching.filter((s) => !seen.has(s.id))];
-    return { songs: all.length ? all : samples, error: null, source: "sample" };
+    return { songs: sampleTracksFor(genre.id, userQ), error: null, source: "sample" };
   });
